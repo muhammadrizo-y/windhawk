@@ -78,8 +78,5 @@
       "required": false,
       "default": "C:\\Program Files\\Windhawk\\windhawk-cli.exe"
     }
-  ],
-  "allowScripts": {
-    "esbuild": true
-  }
+  ]
 }
