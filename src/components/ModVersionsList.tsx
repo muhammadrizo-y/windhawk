@@ -1,5 +1,5 @@
 import { ActionPanel, Icon, Keyboard, List } from "@raycast/api";
-import { showFailureToast, usePromise } from "@raycast/utils";
+import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { useEffect } from "react";
 import { listVersions } from "../utils/mods";
 import { timestampToLongUTCDate } from "../utils/helpers";
@@ -7,9 +7,11 @@ import { CopyVersionAction, InstallModAction, RefreshAction } from "./Actions";
 
 export default function ModVersionsList({
   id,
+  name,
   onVersionInstalled,
 }: {
   id: string;
+  name: string;
   onVersionInstalled?: (version: string) => void | Promise<void>;
 }) {
   const {
@@ -17,9 +19,12 @@ export default function ModVersionsList({
     isLoading,
     error,
     revalidate,
-  } = usePromise(async () => {
-    return await listVersions(id);
-  });
+  } = useCachedPromise(
+    async (id: string) => {
+      return await listVersions(id);
+    },
+    [id],
+  );
 
   useEffect(() => {
     if (error) {
@@ -29,15 +34,18 @@ export default function ModVersionsList({
   }, [error]);
 
   return (
-    <List isLoading={isLoading}>
-      {versions?.toReversed().map((ver, index) => (
+    <List
+      isLoading={isLoading}
+      navigationTitle={`${name} — Install Version`}
+      searchBarPlaceholder={`Search ${name} versions…`}
+    >
+      {versions?.toReversed().map((ver) => (
         <List.Item
           key={ver?.version ?? ""}
-          icon={Icon.Box}
+          icon={Icon.Tag}
           title={ver?.version ?? ""}
-          subtitle={index === 0 ? "Latest" : undefined}
+          subtitle={ver?.isPreRelease ? "Pre-release" : undefined}
           accessories={[
-            ...(ver?.isPreRelease ? [{ icon: Icon.WrenchScrewdriver, text: "Pre Release" }] : []),
             {
               icon: Icon.Calendar,
               tag: new Date(ver?.timestamp * 1000),

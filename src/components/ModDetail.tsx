@@ -1,5 +1,5 @@
-import { ActionPanel, Color, Detail, Icon, Keyboard } from "@raycast/api";
-import { showFailureToast, usePromise } from "@raycast/utils";
+import { ActionPanel, Color, Detail, Icon } from "@raycast/api";
+import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { useEffect } from "react";
 import { getModDetails } from "../utils/mods";
 import {
@@ -9,6 +9,7 @@ import {
   InstallVersionAction,
   InstallVersionSubmenu,
   OpenInBrowserAction,
+  OpenInWindhawkAction,
   RefreshAction,
   ToggleModAction,
   UninstallModAction,
@@ -16,7 +17,7 @@ import {
   ViewChangelogAction,
   ViewModSourceCodeAction,
 } from "./Actions";
-import { preferences } from "../utils/helpers";
+import { addRaycastWidthToMarkdownImages, preferences } from "../utils/helpers";
 
 export default function ModDetail({ modId }: { modId: string }) {
   const installVersionOpensTo = preferences.installVersionOpensTo;
@@ -26,9 +27,12 @@ export default function ModDetail({ modId }: { modId: string }) {
     isLoading,
     error,
     revalidate,
-  } = usePromise(async () => {
-    return await getModDetails(modId);
-  });
+  } = useCachedPromise(
+    async (id: string) => {
+      return await getModDetails(id);
+    },
+    [modId],
+  );
 
   useEffect(() => {
     if (error) {
@@ -39,7 +43,7 @@ export default function ModDetail({ modId }: { modId: string }) {
 
   const id = mod?.id;
   const version = mod?.metadata?.version;
-  const readme = mod?.readme;
+  const readme = addRaycastWidthToMarkdownImages(mod?.readme);
   const name = mod?.metadata?.name;
   const author = mod?.metadata?.author;
   const github = mod?.metadata?.github;
@@ -98,7 +102,7 @@ export default function ModDetail({ modId }: { modId: string }) {
             ) : undefined}
             <Detail.Metadata.TagList title="Target Processes">
               {mod?.metadata?.include?.map((entry) => (
-                <Detail.Metadata.TagList.Item key={entry} icon={Icon.BullsEye} text={entry} />
+                <Detail.Metadata.TagList.Item key={entry} text={entry} />
               ))}
             </Detail.Metadata.TagList>
           </Detail.Metadata>
@@ -114,21 +118,23 @@ export default function ModDetail({ modId }: { modId: string }) {
                   {installVersionOpensTo === "submenu" ? (
                     <InstallVersionSubmenu id={id ?? ""} />
                   ) : (
-                    <InstallVersionAction id={id ?? ""} />
+                    <InstallVersionAction id={id ?? ""} name={name ?? ""} />
                   )}
                 </>
               ) : (
                 <>
                   <ToggleModAction enabled={enabled as boolean} id={id as string} onSuccess={revalidate} />
+
                   {updateAvailable ? <UpdateModAction id={id as string} onSuccess={revalidate} /> : undefined}
                   <UninstallModAction id={id as string} name={name as string} onSuccess={revalidate} />
                 </>
               )}
             </ActionPanel.Section>
             <ActionPanel.Section>
+              <OpenInWindhawkAction id={id ?? ""} />
               <ViewChangelogAction id={id ?? ""} name={name ?? ""} />
               <ViewModSourceCodeAction id={id ?? ""} name={name ?? ""} />
-              <OpenInBrowserAction id={id ?? ""} shortcut={Keyboard.Shortcut.Common.OpenWith} />
+              <OpenInBrowserAction id={id ?? ""} />
             </ActionPanel.Section>
             <ActionPanel.Section>
               <CopyModInfoSubmenu id={id ?? ""} name={name ?? ""} version={version ?? ""} />

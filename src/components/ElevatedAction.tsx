@@ -1,6 +1,7 @@
 import { Action, useNavigation } from "@raycast/api";
-import { isWorkerRunning } from "../utils/admin-worker";
+import { isWorkerOutdated, isWorkerRunning } from "../utils/admin-worker";
 import ElevationSetup from "./ElevationSetup";
+import ElevationUpgrade from "./ElevationUpgrade";
 
 interface ElevatedActionProps {
   icon?: Action.Props["icon"];
@@ -22,6 +23,11 @@ export function ElevatedAction({ icon, title, style, shortcut, onAction }: Eleva
   async function handlePress() {
     if (!(await isWorkerRunning())) {
       push(<ElevationSetup onSetupSuccess={() => onAction()} />);
+      return;
+    }
+
+    if (await isWorkerOutdated()) {
+      push(<ElevationUpgrade onSetupSuccess={() => onAction()} />);
       return;
     }
 

@@ -1,5 +1,5 @@
 import { showFailureToast } from "@raycast/utils";
-import { InstalledMod, InstalledModDetails, Mod, ModDetails, ModVersion } from "../types";
+import { InstalledMod, InstalledModDetails, Mod, ModDetails, ModSetting, ModVersion } from "../types";
 import { execFileAsync, getCliPath } from "./helpers";
 
 const cliPath = getCliPath();
@@ -52,19 +52,38 @@ async function fetchLatestRepoVersion(id: string): Promise<string | null> {
 export async function getInstalledModDetails(id: string): Promise<InstalledModDetails> {
   // `mod show [id] --json` does not include enabled/updateAvailable,
   // so they are fetched separately from the installed mods list.
-  const [res, installedMods] = await Promise.all([
+  // `mod settings get` returns the current values (flat, dotted keys for
+  // groups, booleans as 0/1), merged over initialSettings below.
+  // `mod settings options` returns runtime-written options for mods with
+  // $dynamicSelect settings ({} when unused); they override declared options.
+  const [res, installedMods, currentSettings, optionsRes] = await Promise.all([
     execFileAsync(cliPath, ["mod", "show", id, "--json"], {
       env: { ...process.env, ProgramData: process.env.ProgramData || "C:\\ProgramData" },
     }),
     getInstalledMods().catch(() => [] as InstalledMod[]),
+    getModSettingsValues(id),
+    execFileAsync(cliPath, ["mod", "settings", "options", id, "--json"], {
+      env: { ...process.env, ProgramData: process.env.ProgramData || "C:\\ProgramData" },
+    }).catch(() => null),
   ]);
 
   try {
     const parsed = JSON.parse(res.stdout);
     const installed = installedMods.find((mod) => mod.id === id);
 
+    let dynamicOptions: Record<string, unknown> = {};
+    try {
+      dynamicOptions = JSON.parse(optionsRes?.stdout ?? "")?.data?.options ?? {};
+    } catch {
+      // fall back to declared options below
+    }
+
+    const initialSettings: ModSetting[] = parsed?.data?.initialSettings ?? [];
+
     const modDetails: InstalledModDetails = {
       ...parsed?.data,
+      initialSettings,
+      settings: applyCurrentSettings(initialSettings, currentSettings, dynamicOptions),
       enabled: installed?.enabled ?? false,
       updateAvailable: installed?.updateAvailable ?? false,
       availableUpdateVersion: installed?.availableUpdateVersion ?? null,
@@ -76,6 +95,140 @@ export async function getInstalledModDetails(id: string): Promise<InstalledModDe
     showFailureToast(message, { title: `Could not get installed mod details for ${id}` });
     return {} as InstalledModDetails;
   }
+}
+
+/**
+ * Fetches the current runtime setting values for a mod: a flat record with
+ * dotted keys for groups and bracket indices for rule lists
+ * (e.g. "suffixRules[0].search"), booleans as 0/1. Never throws; failures
+ * yield an empty record so callers fall back to initial values.
+ */
+export async function getModSettingsValues(id: string): Promise<Record<string, unknown>> {
+  try {
+    const res = await execFileAsync(cliPath, ["mod", "settings", "get", id, "--json"], {
+      env: { ...process.env, ProgramData: process.env.ProgramData || "C:\\ProgramData" },
+    });
+    return JSON.parse(res.stdout)?.data?.settings ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Overlays current values from `mod settings get` onto the initialSettings
+ * tree. Groups recurse with dotted paths (e.g. "propertyPages.animate");
+ * a missing key keeps its initial value. Booleans arrive as 0/1.
+ * Repeatable rule lists (array of setting arrays, e.g. suffixRules) recurse
+ * with bracket-indexed paths (e.g. "suffixRules[0].search").
+ * Repeatable primitive lists (array of strings, e.g. Action) are stored as
+ * `path[0]`, `path[1]`… with no trailing field; stored entries (including
+ * extra blank ones beyond the declared length) fully replace the declared
+ * list. Runtime options from `mod settings options` ($dynamicSelect)
+ * override declared options when present and well-shaped, else declared
+ * options stay.
+ */
+export function applyCurrentSettings(
+  settings: ModSetting[],
+  current: Record<string, unknown>,
+  dynamicOptions: Record<string, unknown>,
+  prefix = "",
+): ModSetting[] {
+  return settings.map((setting) => {
+    if (Array.isArray(setting.value)) {
+      const path = prefix ? `${prefix}.${setting.key}` : setting.key;
+      if (setting.value.length > 0 && Array.isArray(setting.value[0])) {
+        const rules = setting.value as ModSetting[][];
+        return {
+          ...setting,
+          value: rules.map((rule, index) => applyCurrentSettings(rule, current, dynamicOptions, `${path}[${index}]`)),
+        };
+      }
+      // Primitive (string) list — or a declared-empty array, which we treat as
+      // one too so a storage-read list never disappears. Groups (arrays of
+      // objects) keep the group branch.
+      const first = setting.value.length > 0 ? setting.value[0] : undefined;
+      if (!Array.isArray(first) && (first === undefined || typeof first !== "object")) {
+        return { ...setting, value: readPrimitiveList(setting, current, path) };
+      }
+      return { ...setting, value: applyCurrentSettings(setting.value as ModSetting[], current, dynamicOptions, path) };
+    }
+
+    const path = prefix ? `${prefix}.${setting.key}` : setting.key;
+    if (!(path in current)) return withDynamicOptions(setting, dynamicOptions[path]);
+
+    const raw = current[path];
+    let value: number | boolean | string;
+    if (typeof setting.value === "boolean") {
+      value = raw === 1 || raw === "1" || raw === true;
+    } else if (typeof setting.value === "number") {
+      const numeric = typeof raw === "number" ? raw : Number(raw);
+      value = Number.isFinite(numeric) ? numeric : setting.value;
+    } else {
+      value = String(raw);
+    }
+    return withDynamicOptions({ ...setting, value }, dynamicOptions[path]);
+  });
+}
+
+/**
+ * Reads a repeatable primitive list (string list) from flat storage:
+ * values are addressed directly as `path[i]`, no trailing field. Extra
+ * blank entries beyond the declared length are kept as-is.
+ */
+function readPrimitiveList(
+  setting: ModSetting,
+  current: Record<string, unknown>,
+  path: string,
+): string[] {
+  const stored = collectListIndices(current, path);
+  if (stored.length > 0) {
+    return stored.map((index) => String(current[`${path}[${index}]`]));
+  }
+  return (setting.value as unknown as Array<string | number | boolean>).map(String);
+}
+
+export function collectListIndices(
+  current: Record<string, unknown>,
+  path: string,
+): number[] {
+  const pattern = new RegExp(`^${escapeRegExp(path)}\\[(\\d+)\\]$`);
+  const indices: number[] = [];
+  for (const key of Object.keys(current)) {
+    const match = key.match(pattern);
+    if (match) indices.push(parseInt(match[1], 10));
+  }
+  return indices.sort((a, b) => a - b);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Fetches the storage-truth entries of a primitive (string) list setting,
+ * e.g. path "buttons[1].Action" → ["", "cmd"]. Never throws.
+ */
+export async function getStringListValues(modId: string, path: string): Promise<string[]> {
+  const flat = await getModSettingsValues(modId);
+  return collectListIndices(flat, path).map((index) => String(flat[`${path}[${index}]`]));
+}
+
+/**
+ * Replaces declared dropdown options with runtime ones when the runtime entry
+ * is a non-empty array of single-entry maps (same shape as declared options).
+ * Anything else keeps the schema entry untouched.
+ */
+function withDynamicOptions(setting: ModSetting, runtime: unknown): ModSetting {
+  if (
+    Array.isArray(runtime) &&
+    runtime.length > 0 &&
+    runtime.every(
+      (entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry) && Object.keys(entry).length > 0,
+    )
+  ) {
+    return { ...setting, options: runtime as Record<string, string>[] };
+  }
+  return setting;
 }
 
 export async function getMods(): Promise<Mod[]> {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Detail, ActionPanel, Action, useNavigation, showToast, Toast, Icon, Color } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { isWorkerRunning, registerWorker, unregisterWorker } from "../utils/admin-worker";
+import { isWorkerOutdated, isWorkerRunning, registerWorker, unregisterWorker } from "../utils/admin-worker";
 
 interface ElevationSetupProps {
   /**
@@ -13,6 +13,7 @@ interface ElevationSetupProps {
 export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) {
   const { pop } = useNavigation();
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
+  const [needsUpgrade, setNeedsUpgrade] = useState(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
@@ -25,8 +26,10 @@ export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) 
     try {
       const registered = await isWorkerRunning();
       setIsRegistered(registered);
+      setNeedsUpgrade(registered && (await isWorkerOutdated()));
     } catch {
       setIsRegistered(false);
+      setNeedsUpgrade(false);
     } finally {
       setIsLoading(false);
     }
@@ -37,6 +40,7 @@ export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) 
     try {
       await registerWorker();
       setIsRegistered(true);
+      setNeedsUpgrade(false);
       await showToast({ style: Toast.Style.Success, title: "Admin worker registered" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -75,9 +79,11 @@ export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) 
 # Administrator Privileges Setup
 
 ${
-  isRegistered
-    ? "Status: **Ready (Elevated Worker Active)**\n\nAdministrator setup is active. You can run elevated commands with zero UAC prompts."
-    : "Status: **Setup Required**\n\nTo execute elevated actions seamlessly, perform a one-time registration. This will prompt for Windows Administrator rights once."
+  !isRegistered
+    ? "Status: **Setup Required**\n\nTo execute elevated actions seamlessly, perform a one-time registration. This will prompt for Windows Administrator rights once."
+    : needsUpgrade
+      ? "Status: **Upgrade Required**\n\nThe extension upgraded its elevated worker since you registered. Upgrade below to replace the old worker (this fixes actions failing until you do)."
+      : "Status: **Ready (Elevated Worker Active)**\n\nAdministrator setup is active. You can run elevated commands with zero UAC prompts."
 }
 
 ---
@@ -86,7 +92,7 @@ Some actions require Windhawk CLI commands to be run as administrator, such as i
 
 The UAC prompt may close the Raycast window; open Raycast again to continue.
 
-You can unregister or re-register at any time by opening this page again. \`Manage Mods\` command -> \`Manage Elevation\`.
+You can unregister or re-register at any time by opening this page again. \`Manage Mods\` / \`Search Mods\` command -> \`Manage Elevation\`.
 `;
 
   return (
@@ -96,11 +102,13 @@ You can unregister or re-register at any time by opening this page again. \`Mana
         <Detail.Metadata>
           <Detail.Metadata.Label
             title="Status"
-            text={isRegistered ? "Registered" : "Not Registered"}
+            text={!isRegistered ? "Not Registered" : needsUpgrade ? "Upgrade Required" : "Registered"}
             icon={
-              isRegistered
-                ? { source: Icon.Checkmark, tintColor: Color.Green }
-                : { source: Icon.XMarkCircle, tintColor: Color.Red }
+              !isRegistered
+                ? { source: Icon.XMarkCircle, tintColor: Color.Red }
+                : needsUpgrade
+                  ? { source: Icon.ExclamationMark, tintColor: Color.Orange }
+                  : { source: Icon.Checkmark, tintColor: Color.Green }
             }
           />
         </Detail.Metadata>

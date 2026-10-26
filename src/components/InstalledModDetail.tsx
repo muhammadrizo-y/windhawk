@@ -1,17 +1,21 @@
-import { ActionPanel, Color, Detail, Icon, Keyboard } from "@raycast/api";
-import { showFailureToast, usePromise } from "@raycast/utils";
+import { ActionPanel, Color, Detail, Icon } from "@raycast/api";
+import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { useEffect } from "react";
 import { getInstalledModDetails } from "../utils/mods";
 import {
+  ConfigureModAction,
   CopyCommandsSubmenu,
   CopyModInfoSubmenu,
   OpenInBrowserAction,
+  OpenInWindhawkAction,
   RefreshAction,
   ToggleModAction,
   UninstallModAction,
+  UpdateModAction,
   ViewChangelogAction,
   ViewInstalledModSourceCodeAction,
 } from "./Actions";
+import { addRaycastWidthToMarkdownImages } from "../utils/helpers";
 
 export default function InstalledModDetail({ modId }: { modId: string }) {
   const {
@@ -19,9 +23,12 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
     isLoading,
     error,
     revalidate,
-  } = usePromise(async () => {
-    return await getInstalledModDetails(modId);
-  });
+  } = useCachedPromise(
+    async (id: string) => {
+      return await getInstalledModDetails(id);
+    },
+    [modId],
+  );
 
   useEffect(() => {
     if (error) {
@@ -32,7 +39,7 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
 
   const id = mod?.id;
   const version = mod?.metadata?.version;
-  const readme = mod?.readme;
+  const readme = addRaycastWidthToMarkdownImages(mod?.readme);
   const name = mod?.metadata?.name;
   const author = mod?.metadata?.author;
   const github = mod?.metadata?.github;
@@ -86,29 +93,36 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
             ) : undefined}
             <Detail.Metadata.TagList title="Target Processes">
               {mod?.metadata?.include?.map((entry) => (
-                <Detail.Metadata.TagList.Item key={entry} icon={Icon.BullsEye} text={entry} />
+                <Detail.Metadata.TagList.Item key={entry} text={entry} />
               ))}
             </Detail.Metadata.TagList>
           </Detail.Metadata>
         )
       }
       actions={
-        <ActionPanel>
-          <ActionPanel.Section>
-            <ToggleModAction id={id ?? ""} enabled={enabled ?? false} onSuccess={revalidate} />
-            <UninstallModAction id={id ?? ""} name={name ?? ""} onSuccess={revalidate} />
-          </ActionPanel.Section>
-          <ActionPanel.Section>
-            <ViewChangelogAction id={id ?? ""} name={name ?? ""} />
-            <ViewInstalledModSourceCodeAction id={id ?? ""} name={name ?? ""} />
-            <OpenInBrowserAction id={id ?? ""} shortcut={Keyboard.Shortcut.Common.OpenWith} />
-          </ActionPanel.Section>
-          <ActionPanel.Section>
-            <CopyModInfoSubmenu id={id ?? ""} name={name ?? ""} version={version ?? ""} />
-            <CopyCommandsSubmenu id={id ?? ""} />
-          </ActionPanel.Section>
-          <RefreshAction revalidate={revalidate} />
-        </ActionPanel>
+        !isLoading ? (
+          <ActionPanel>
+            <ActionPanel.Section>
+              <ToggleModAction id={id ?? ""} enabled={enabled ?? false} onSuccess={revalidate} />
+              {mod?.settings && mod.settings.length > 0 ? (
+                <ConfigureModAction id={id ?? ""} name={name ?? ""} settings={mod.settings} />
+              ) : undefined}
+              {updateAvailable ? <UpdateModAction id={id ?? ""} onSuccess={revalidate} /> : undefined}
+              <UninstallModAction id={id ?? ""} name={name ?? ""} onSuccess={revalidate} />
+            </ActionPanel.Section>
+            <ActionPanel.Section>
+              <OpenInWindhawkAction id={id ?? ""} />
+              <ViewChangelogAction id={id ?? ""} name={name ?? ""} />
+              <ViewInstalledModSourceCodeAction id={id ?? ""} name={name ?? ""} />
+              <OpenInBrowserAction id={id ?? ""} />
+            </ActionPanel.Section>
+            <ActionPanel.Section>
+              <CopyModInfoSubmenu id={id ?? ""} name={name ?? ""} version={version ?? ""} />
+              <CopyCommandsSubmenu id={id ?? ""} />
+            </ActionPanel.Section>
+            <RefreshAction revalidate={revalidate} />
+          </ActionPanel>
+        ) : undefined
       }
     />
   );

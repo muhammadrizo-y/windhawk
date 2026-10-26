@@ -1,6 +1,6 @@
 import { showToast, Toast } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
-import { runElevatedCommand } from "./admin-worker";
+import { runElevatedCommand, runElevatedSettingsBatch } from "./admin-worker";
 
 export async function enableMod(id: string): Promise<boolean> {
   try {
@@ -82,6 +82,26 @@ export async function uninstallMod(id: string): Promise<boolean> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     showFailureToast(message, { title: `Could not uninstall ${id}` });
+    return false;
+  }
+}
+
+export async function setModSetting(id: string, key: string, value: string): Promise<boolean> {
+  return setModSettings(id, [{ key, value }]);
+}
+
+export async function setModSettings(id: string, pairs: Array<{ key: string; value: string }>): Promise<boolean> {
+  try {
+    const toast = await showToast({ style: Toast.Style.Animated, title: `Updating settings…` });
+
+    await runElevatedSettingsBatch(id, pairs);
+
+    toast.style = Toast.Style.Success;
+    toast.title = pairs.length === 1 ? `Setting updated` : `${pairs.length} settings updated`;
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    showFailureToast(message, { title: `Could not update settings` });
     return false;
   }
 }

@@ -7,7 +7,7 @@ A [Raycast](https://raycast.com) extension to install and manage Windhawk mods
 
 ## Requirements
 
-- [Windhawk](https://windhawk.net) installed on Windows.
+- [Windhawk](https://windhawk.net) v2.0 alpha 3 or newer installed on Windows.
 
 ## Commands
 
@@ -35,7 +35,3 @@ Search and install Windhawk mods
 - View source code
 - Copy mod info
 - Copy terminal commands
-
-## Issues
-
-If you encounter any issues, feel free to [contact me](https://x.com/muhammadrizo_y).

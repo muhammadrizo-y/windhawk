@@ -1,4 +1,4 @@
-import { ActionPanel, Color, Icon, Keyboard, List } from "@raycast/api";
+import { ActionPanel, Color, Icon, List } from "@raycast/api";
 import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { useEffect, useState } from "react";
 import { getMods } from "./utils/mods";
@@ -11,6 +11,7 @@ import {
   InstallVersionSubmenu,
   ManageElevationAction,
   OpenInBrowserAction,
+  OpenInWindhawkAction,
   RefreshAction,
   ShowDetailsAction,
   ToggleModAction,
@@ -71,7 +72,7 @@ export default function Command() {
             <List.Item
               key={id}
               keywords={[id]}
-              title={name}
+              title={{ value: name, tooltip: name }}
               detail={
                 <List.Item.Detail
                   markdown={`## ${name}\n\n---\n\n${description}`}
@@ -110,6 +111,9 @@ export default function Command() {
                 />
               }
               accessories={[
+                ...(updateAvailable
+                  ? [{ icon: { source: Icon.ArrowUpCircle, tintColor: Color.Green }, tooltip: `Update: ${version}` }]
+                  : []),
                 ...(installed
                   ? [
                       enabled
@@ -119,9 +123,6 @@ export default function Command() {
                             tooltip: "Installed · Disabled",
                           },
                     ]
-                  : []),
-                ...(updateAvailable
-                  ? [{ icon: { source: Icon.ArrowUpCircle, tintColor: Color.Green }, tooltip: `Update: ${version}` }]
                   : []),
               ]}
               actions={
@@ -157,6 +158,7 @@ export default function Command() {
                         ) : (
                           <InstallVersionAction
                             id={id}
+                            name={name}
                             onSuccess={(installedVersion) =>
                               patchMod(id, {
                                 installed: true,
@@ -199,9 +201,10 @@ export default function Command() {
                     )}
                   </ActionPanel.Section>
                   <ActionPanel.Section>
+                    <OpenInWindhawkAction id={id} />
                     <ViewChangelogAction id={id} name={name ?? ""} />
                     <ViewModSourceCodeAction id={id} name={name ?? ""} />
-                    <OpenInBrowserAction id={id} shortcut={Keyboard.Shortcut.Common.OpenWith} />
+                    <OpenInBrowserAction id={id} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
                     <CopyModInfoSubmenu id={id} name={name ?? ""} version={version ?? ""} />

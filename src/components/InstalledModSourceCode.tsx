@@ -1,5 +1,5 @@
 import { ActionPanel, Detail } from "@raycast/api";
-import { showFailureToast, usePromise } from "@raycast/utils";
+import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { useEffect } from "react";
 import { RefreshAction } from "./Actions";
 import { readFile } from "node:fs/promises";
@@ -11,11 +11,14 @@ export default function InstalledModSourceCode({ id, name }: { id: string; name:
     data: source,
     error,
     revalidate,
-  } = usePromise(async () => {
-    const filePath = path.join("C:", "ProgramData", "Windhawk", "ModsSource", `${id}.wh.cpp`);
-    const file = await readFile(filePath, "utf8");
-    return file;
-  });
+  } = useCachedPromise(
+    async (id: string) => {
+      const filePath = path.join("C:", "ProgramData", "Windhawk", "ModsSource", `${id}.wh.cpp`);
+      const file = await readFile(filePath, "utf8");
+      return file;
+    },
+    [id],
+  );
 
   useEffect(() => {
     if (error) {

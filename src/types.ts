@@ -9,6 +9,14 @@ export interface InstalledMod {
   availableUpdateVersion: string | null;
 }
 
+export interface ModSetting {
+  key: string;
+  value: number | boolean | string | string[] | ModSetting[] | ModSetting[][];
+  name: string;
+  description?: string;
+  options?: Record<string, string>[];
+}
+
 export interface InstalledModDetails {
   id: string;
   metadata: {
@@ -24,6 +32,8 @@ export interface InstalledModDetails {
     exclude: string[];
   };
   readme: string;
+  initialSettings: ModSetting[];
+  settings: ModSetting[];
   enabled: boolean;
   updateAvailable: boolean;
   availableUpdateVersion: string | null;

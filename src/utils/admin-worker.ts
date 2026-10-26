@@ -10,10 +10,17 @@ const execFileAsync = promisify(execFile);
 
 export const TASK_NAME = "RaycastWindhawkAdminWorker";
 
-export type WorkerAction = "enable" | "disable" | "install" | "update" | "uninstall";
+/**
+ * Version of the elevated worker script/protocol. Bump whenever a registered
+ * worker must be replaced to serve the current build (e.g. new allowlisted
+ * actions). Missing marker counts as outdated.
+ */
+export const WORKER_VERSION = 1;
 
-const VALID_ACTIONS: WorkerAction[] = ["enable", "disable", "install", "update", "uninstall"];
-const VALID_ARG = /^[A-Za-z0-9_.-]+$/;
+export type WorkerAction = "enable" | "disable" | "install" | "update" | "uninstall" | "settings";
+
+const VALID_ACTIONS: WorkerAction[] = ["enable", "disable", "install", "update", "uninstall", "settings"];
+const VALID_ARG = /^[A-Za-z0-9_.[\]-]+$/;
 
 // Raycast's extension host overrides LOCALAPPDATA and USERPROFILE to a temp
 // sandbox that gets wiped by temp cleaners and differs from the real profile
@@ -47,6 +54,7 @@ const WORKER_SCRIPT_PATH = join(WORK_DIR, "worker.ps1");
 const LAUNCHER_VBS_PATH = join(WORK_DIR, "launcher.vbs");
 const FLAG_FILE = join(WORK_DIR, "running.flag");
 const LOG_FILE = join(WORK_DIR, "setup.log");
+const VERSION_FILE = join(WORK_DIR, "worker.version");
 const SETUP_PS_PATH = join(tmpdir(), "raycast_windhawk_setup.ps1");
 const HELPER_VBS_PATH = join(tmpdir(), "raycast_windhawk_helper.vbs");
 
@@ -131,6 +139,22 @@ async function taskExists(): Promise<boolean> {
   }
 }
 
+/**
+ * Whether the running worker predates the current extension build.
+ * Returns false when no worker is running (that is "not registered",
+ * not "outdated"). A missing version marker counts as outdated.
+ */
+export async function isWorkerOutdated(): Promise<boolean> {
+  try {
+    const pid = await readPid();
+    if (pid === null || !(await isProcessAlive(pid))) return false;
+    const raw = (await readFile(VERSION_FILE, "utf-8")).trim();
+    return raw !== String(WORKER_VERSION);
+  } catch {
+    return true;
+  }
+}
+
 async function cleanupStaleFiles(): Promise<void> {
   await unlink(FLAG_FILE).catch(() => {});
   const entries = await readdir(WORK_DIR).catch(() => [] as string[]);
@@ -188,9 +212,13 @@ function getWorkerScriptContent(cliPath: string): string {
                 $action = [string]$req.action
                 $modId = [string]$req.modId
                 $version = [string]$req.version
+                $key = [string]$req.key
+                $value = [string]$req.value
+                $pairs = $req.pairs
 
                 if ($modId -notmatch '^[A-Za-z0-9_.-]+$') { throw "Invalid mod id" }
                 if ($version -ne "" -and $version -notmatch '^[A-Za-z0-9_.-]+$') { throw "Invalid version" }
+                if ($key -ne "" -and $key -notmatch '^[A-Za-z0-9_.\\[\\]-]+$') { throw "Invalid setting key" }
 
                 switch ($action) {
                     "enable" { $out = & "${escapedCliPath}" mod enable $modId 2>&1; $exit = $LASTEXITCODE }
@@ -203,6 +231,20 @@ function getWorkerScriptContent(cliPath: string): string {
                         } else {
                             $out = & "${escapedCliPath}" mod install $modId $version 2>&1
                         }
+                        $exit = $LASTEXITCODE
+                    }
+                    "settings" {
+                        $setArgs = @("mod", "settings", "set", $modId)
+                        if ($req.pairs -and $req.pairs.Count -gt 0) {
+                            foreach ($p in $req.pairs) {
+                                $pairKey = [string]$p.key
+                                if ($pairKey -notmatch '^[A-Za-z0-9_.\\[\\]-]+$') { throw "Invalid setting key" }
+                                $setArgs += "$pairKey=$([string]$p.value)"
+                            }
+                        } else {
+                            $setArgs += "$key=$value"
+                        }
+                        $out = & "${escapedCliPath}" @setArgs 2>&1
                         $exit = $LASTEXITCODE
                     }
                     default { throw "Unknown action: $action" }
@@ -304,6 +346,9 @@ export async function registerWorker(): Promise<void> {
       } catch {
           Log ("direct worker launch failed: " + ($_.Exception.Message))
       }
+
+      Set-Content -Path "${escapePathForPowerShell(VERSION_FILE)}" -Value "${WORKER_VERSION}" -Force
+      Log "worker version stamped (${WORKER_VERSION})"
 
       Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue
       } catch {
@@ -443,27 +488,100 @@ export async function unregisterWorker(): Promise<void> {
  * Sends an allowlisted action to the active elevated worker and returns its stdout.
  *
  * The worker never executes arbitrary command strings: only the fixed actions
- * above are accepted, mod ids/versions are validated against a strict charset,
- * and each call uses unique request/response files so concurrent callers stay isolated.
+ * above are accepted; mod ids/versions/setting keys are validated against a
+ * strict charset (setting values pass through opaquely as one argv element);
+ * each call uses unique request/response files so concurrent callers stay isolated.
+ *
+ * Extra arguments are per-action: install takes a version; settings takes a
+ * dotted key plus its raw value. Other actions take none.
  */
-export async function runElevatedCommand(action: WorkerAction, modId: string, version?: string): Promise<string> {
+export async function runElevatedCommand(
+  action: WorkerAction,
+  modId: string,
+  arg1?: string,
+  arg2?: string,
+): Promise<string> {
   if (!VALID_ACTIONS.includes(action)) {
     throw new Error(`Blocked: unknown action "${action}".`);
   }
-  if (!VALID_ARG.test(modId) || (version !== undefined && version !== "" && !VALID_ARG.test(version))) {
-    throw new Error("Blocked: invalid mod id or version.");
+  if (!VALID_ARG.test(modId)) {
+    throw new Error("Blocked: invalid mod id.");
+  }
+
+  let version = "";
+  let key = "";
+  let value = "";
+  if (action === "install") {
+    if (arg1 !== undefined && arg1 !== "" && !VALID_ARG.test(arg1)) {
+      throw new Error("Blocked: invalid version.");
+    }
+    version = arg1 ?? "";
+  } else if (action === "settings") {
+    if (!arg1 || !VALID_ARG.test(arg1)) {
+      throw new Error("Blocked: invalid setting key.");
+    }
+    if (arg2 === undefined) {
+      throw new Error("Blocked: missing setting value.");
+    }
+    key = arg1;
+    value = arg2;
+  } else if (arg1 !== undefined || arg2 !== undefined) {
+    throw new Error(`Blocked: unexpected arguments for action "${action}".`);
   }
 
   if (!(await isWorkerRunning())) {
     throw new Error("Admin worker is not running. Run registerWorker() first.");
   }
 
+  return dispatchWorkerRequest({ action, modId, version, key, value });
+}
+
+/**
+ * Sends several setting key/value pairs in one atomic `mod settings set`
+ * invocation. Keys are strictly validated; values pass through opaquely.
+ */
+export async function runElevatedSettingsBatch(
+  modId: string,
+  pairs: Array<{ key: string; value: string }>,
+): Promise<string> {
+  if (!VALID_ARG.test(modId)) {
+    throw new Error("Blocked: invalid mod id.");
+  }
+  if (pairs.length === 0) {
+    throw new Error("Blocked: no setting pairs to write.");
+  }
+  for (const pair of pairs) {
+    if (!pair.key || !VALID_ARG.test(pair.key)) {
+      throw new Error("Blocked: invalid setting key.");
+    }
+    if (pair.value === undefined) {
+      throw new Error("Blocked: missing setting value.");
+    }
+  }
+
+  if (!(await isWorkerRunning())) {
+    throw new Error("Admin worker is not running. Run registerWorker() first.");
+  }
+
+  return dispatchWorkerRequest({ action: "settings", modId, pairs });
+}
+
+interface WorkerRequest {
+  action: WorkerAction;
+  modId: string;
+  version?: string;
+  key?: string;
+  value?: string;
+  pairs?: Array<{ key: string; value: string }>;
+}
+
+async function dispatchWorkerRequest(request: WorkerRequest): Promise<string> {
   try {
     const requestId = randomUUID();
     const requestPath = join(WORK_DIR, `request_${requestId}.json`);
     const responsePath = join(WORK_DIR, `response_${requestId}.json`);
 
-    await writeFile(requestPath, JSON.stringify({ id: requestId, action, modId, version: version ?? "" }), "utf-8");
+    await writeFile(requestPath, JSON.stringify({ id: requestId, ...request }), "utf-8");
 
     let responseText = "";
     for (let i = 0; i < 50; i++) {
@@ -484,7 +602,7 @@ export async function runElevatedCommand(action: WorkerAction, modId: string, ve
     await unlink(responsePath).catch(() => {});
 
     if (!res.success) {
-      throw new Error(res.error || "Elevated execution failed.");
+      throw new Error(extractCliError(res.output) ?? res.error ?? "Elevated execution failed.");
     }
 
     const output = (res.output || "").trim();
@@ -493,4 +611,21 @@ export async function runElevatedCommand(action: WorkerAction, modId: string, ve
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(message);
   }
+}
+
+/**
+ * The CLI reports failures as a JSON envelope ({success:false, error:{message}})
+ * on stdout with a non-zero exit code. Prefer that message over raw output.
+ */
+function extractCliError(output?: string): string | undefined {
+  try {
+    const parsed = JSON.parse(output ?? "");
+    const message = parsed?.error?.message;
+    if (parsed?.success === false && typeof message === "string" && message.trim()) {
+      return message.trim();
+    }
+  } catch {
+    // not a JSON envelope - fall through
+  }
+  return undefined;
 }

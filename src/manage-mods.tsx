@@ -1,4 +1,4 @@
-import { ActionPanel, List, Icon, Color, Keyboard } from "@raycast/api";
+import { ActionPanel, List, Icon, Color } from "@raycast/api";
 import { showFailureToast, useCachedPromise } from "@raycast/utils";
 import { useEffect } from "react";
 import { getInstalledMods } from "./utils/mods";
@@ -8,6 +8,7 @@ import {
   CopyModInfoSubmenu,
   ManageElevationAction,
   OpenInBrowserAction,
+  OpenInWindhawkAction,
   RefreshAction,
   ShowDetailsAction,
   ToggleModAction,
@@ -51,7 +52,7 @@ export default function Command() {
             <List.Item
               key={id}
               keywords={[id]}
-              title={name}
+              title={{ value: name, tooltip: name }}
               detail={
                 <List.Item.Detail
                   markdown={`## ${name}\n\n---\n\n${description}`}
@@ -83,12 +84,6 @@ export default function Command() {
                 />
               }
               accessories={[
-                {
-                  icon: enabled
-                    ? { source: Icon.CheckCircle, tintColor: Color.Blue }
-                    : { source: Icon.CircleDisabled, tintColor: Color.Orange },
-                  tooltip: enabled ? "Enabled" : "Disabled",
-                },
                 ...(updateAvailable
                   ? [
                       {
@@ -97,6 +92,12 @@ export default function Command() {
                       },
                     ]
                   : []),
+                {
+                  icon: enabled
+                    ? { source: Icon.CheckCircle, tintColor: Color.Blue }
+                    : { source: Icon.CircleDisabled, tintColor: Color.Orange },
+                  tooltip: enabled ? "Enabled" : "Disabled",
+                },
               ]}
               actions={
                 <ActionPanel>
@@ -107,9 +108,10 @@ export default function Command() {
                     <UninstallModAction id={id} name={name} onSuccess={revalidate} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
+                    <OpenInWindhawkAction id={id} />
                     <ViewChangelogAction id={id} name={name} />
                     <ViewInstalledModSourceCodeAction id={id} name={name} />
-                    <OpenInBrowserAction id={id} shortcut={Keyboard.Shortcut.Common.OpenWith} />
+                    <OpenInBrowserAction id={id} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
                     <CopyModInfoSubmenu id={id} name={name ?? ""} version={version ?? ""} />

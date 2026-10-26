@@ -5,12 +5,13 @@ import { disableMod, enableMod, installMod, uninstallMod, updateMod } from "../u
 import ElevationSetup from "./ElevationSetup";
 import { ModChangelog } from "./ModChangelog";
 import { listVersions } from "../utils/mods";
-import { ModVersion } from "../types";
+import { ModSetting, ModVersion } from "../types";
 import { showFailureToast } from "@raycast/utils";
-import { timestampToUTCDate } from "../utils/helpers";
+import { exePath, timestampToUTCDate } from "../utils/helpers";
 import ModVersionsList from "./ModVersionsList";
 import InstalledModSourceCode from "./InstalledModSourceCode";
 import ModSourceCode from "./ModSourceCode";
+import ModSettingsList from "./ModSettingsList";
 
 export function ShowDetailsAction({ target }: { target: JSX.Element }) {
   return <Action.Push icon={Icon.AppWindowSidebarRight} title="Show Details" target={target} />;
@@ -39,12 +40,26 @@ export function ToggleModAction<T>({
   );
 }
 
-type OpenInBrowserActionProps =
-  | { id: string; url?: never; shortcut?: Action.OpenInBrowser.Props["shortcut"] }
-  | { id?: never; url: string; shortcut?: Action.OpenInBrowser.Props["shortcut"] };
+export function ConfigureModAction({ id, name, settings }: { id: string; name: string; settings: ModSetting[] }) {
+  return (
+    <Action.Push
+      icon={Icon.Cog}
+      title="Configure Mod"
+      target={<ModSettingsList modId={id} name={name} settings={settings} />}
+      shortcut={Keyboard.Shortcut.Common.Edit}
+    />
+  );
+}
 
-export function OpenInBrowserAction({ id, url, shortcut }: OpenInBrowserActionProps) {
-  return <Action.OpenInBrowser url={url ?? `https://windhawk.net/mods/${id}`} shortcut={shortcut} />;
+export function OpenInWindhawkAction({ id }: { id: string }) {
+  return (
+    <Action.Open
+      icon={{ fileIcon: exePath }}
+      title="Open in Windhawk"
+      target={`windhawk://mods/${id}`}
+      shortcut={Keyboard.Shortcut.Common.Open}
+    />
+  );
 }
 
 export function ViewChangelogAction({ id, name }: { id: string; name: string }) {
@@ -64,7 +79,7 @@ export function ViewInstalledModSourceCodeAction({ id, name }: { id: string; nam
       icon={Icon.Code}
       title="View Source Code"
       target={<InstalledModSourceCode id={id} name={name} />}
-      shortcut={Keyboard.Shortcut.Common.Open}
+      shortcut={Keyboard.Shortcut.Common.OpenWith}
     />
   );
 }
@@ -75,7 +90,18 @@ export function ViewModSourceCodeAction({ id, name }: { id: string; name: string
       icon={Icon.Code}
       title="View Source Code"
       target={<ModSourceCode id={id} name={name} />}
-      shortcut={Keyboard.Shortcut.Common.Open}
+      shortcut={Keyboard.Shortcut.Common.OpenWith}
+    />
+  );
+}
+
+type OpenInBrowserActionProps = { id: string; url?: never } | { id?: never; url: string };
+
+export function OpenInBrowserAction({ id, url }: OpenInBrowserActionProps) {
+  return (
+    <Action.OpenInBrowser
+      url={url ?? `https://windhawk.net/mods/${id}`}
+      shortcut={{ modifiers: ["ctrl", "alt"], key: "o" }}
     />
   );
 }
@@ -172,10 +198,12 @@ export function InstallModAction({
 
 export function InstallVersionAction({
   id,
+  name,
   shortcut,
   onSuccess,
 }: {
   id: string;
+  name: string;
   shortcut?: Action.Push.Props["shortcut"];
   onSuccess?: (installedVersion: string) => void | Promise<void>;
 }) {
@@ -183,7 +211,7 @@ export function InstallVersionAction({
     <Action.Push
       icon={Icon.List}
       title="Install Version…"
-      target={<ModVersionsList id={id} onVersionInstalled={onSuccess} />}
+      target={<ModVersionsList id={id} name={name} onVersionInstalled={onSuccess} />}
       shortcut={shortcut}
     />
   );
@@ -220,11 +248,11 @@ export function InstallVersionSubmenu({
       title="Install Version"
       shortcut={shortcut}
     >
-      {versions.toReversed().map((ver, index) => (
+      {versions.toReversed().map((ver) => (
         <ElevatedAction
           key={ver?.version}
-          icon={index === 0 ? { source: Icon.Box, tintColor: Color.Blue } : Icon.Box}
-          title={`${ver?.version ?? ""} · ${timestampToUTCDate(ver?.timestamp * 1000)}${ver?.isPreRelease ? " · 🧪" : ""}${index === 0 ? " · [latest]" : ""}`}
+          icon={Icon.Tag}
+          title={`${ver?.version ?? ""} · ${timestampToUTCDate(ver?.timestamp * 1000)}${ver?.isPreRelease ? " · Pre-release" : ""}`}
           onAction={async () => {
             if (await installMod(id, ver?.version ?? "")) {
               await onSuccess?.(ver?.version ?? "");
@@ -246,6 +274,7 @@ export function UpdateModAction<T>({ id, onSuccess }: { id: string; onSuccess: (
           await onSuccess?.();
         }
       }}
+      shortcut={{ modifiers: ["ctrl"], key: "u" }}
     />
   );
 }
