@@ -1,9 +1,10 @@
-import { ActionPanel, List, Icon, Color } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
-import { useEffect } from "react";
+import { showError } from "@chrismessina/raycast-kit";
+import { ActionPanel, List, Icon, Color, Clipboard } from "@raycast/api";
+import { useCachedPromise } from "@raycast/utils";
 import { getInstalledMods } from "./utils/mods";
 import InstalledModDetail from "./components/InstalledModDetail";
 import {
+  ConfigureModAction,
   CopyCommandsSubmenu,
   CopyModInfoSubmenu,
   ManageElevationAction,
@@ -22,18 +23,12 @@ export default function Command() {
   const {
     data: mods,
     isLoading,
-    error,
     revalidate,
-  } = useCachedPromise(async () => {
-    return await getInstalledMods();
+  } = useCachedPromise(getInstalledMods, [], {
+    onError(error) {
+      void showError(error, { title: "Failed to load mods" });
+    },
   });
-
-  useEffect(() => {
-    if (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Failed to load mods" });
-    }
-  }, [error]);
 
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search installed mods…" isShowingDetail throttle>
@@ -59,7 +54,7 @@ export default function Command() {
                   metadata={
                     <List.Item.Detail.Metadata>
                       <List.Item.Detail.Metadata.TagList title="Mod ID">
-                        <List.Item.Detail.Metadata.TagList.Item text={id} />
+                        <List.Item.Detail.Metadata.TagList.Item text={id} onAction={async () => await Clipboard.copy(id ?? "")} />
                       </List.Item.Detail.Metadata.TagList>
                       <List.Item.Detail.Metadata.Label
                         icon={
@@ -105,23 +100,24 @@ export default function Command() {
                     <ShowDetailsAction target={<InstalledModDetail modId={id} />} />
                     <ToggleModAction enabled={enabled} id={id} onSuccess={revalidate} />
                     {updateAvailable ? <UpdateModAction id={id} onSuccess={revalidate} /> : undefined}
+                    <ConfigureModAction id={id} name={name} />
                     <UninstallModAction id={id} name={name} onSuccess={revalidate} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
                     <OpenInWindhawkAction id={id} />
                     <ViewChangelogAction id={id} name={name} />
                     <ViewInstalledModSourceCodeAction id={id} name={name} />
-                    <OpenInBrowserAction id={id} />
+                    <OpenInBrowserAction id={id} shortcut={{ modifiers: ["ctrl", "alt"], key: "o" }} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
                     <CopyModInfoSubmenu id={id} name={name ?? ""} version={version ?? ""} />
                     <CopyCommandsSubmenu id={id} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
-                    <RefreshAction revalidate={revalidate} />
+                    <ManageElevationAction />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
-                    <ManageElevationAction />
+                    <RefreshAction revalidate={revalidate} />
                   </ActionPanel.Section>
                 </ActionPanel>
               }

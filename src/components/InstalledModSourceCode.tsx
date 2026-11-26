@@ -1,31 +1,19 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { ActionPanel, Detail } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
-import { useEffect } from "react";
-import { RefreshAction } from "./Actions";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import { useCachedPromise } from "@raycast/utils";
+import { CopySourceCode, RefreshAction } from "./Actions";
+import { getInstalledModSource } from "../utils/mods";
 
 export default function InstalledModSourceCode({ id, name }: { id: string; name: string }) {
   const {
     isLoading,
     data: source,
-    error,
     revalidate,
-  } = useCachedPromise(
-    async (id: string) => {
-      const filePath = path.join("C:", "ProgramData", "Windhawk", "ModsSource", `${id}.wh.cpp`);
-      const file = await readFile(filePath, "utf8");
-      return file;
+  } = useCachedPromise(getInstalledModSource, [id], {
+    onError(error) {
+      void showError(error, { title: `Could not get source code for ${id}` });
     },
-    [id],
-  );
-
-  useEffect(() => {
-    if (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: `Could not get source code for ${id}` });
-    }
-  }, [error]);
+  });
 
   return (
     <Detail
@@ -34,6 +22,7 @@ export default function InstalledModSourceCode({ id, name }: { id: string; name:
       markdown={isLoading ? `## _Loading…_` : `# ${name} Source Code\n\n\`\`\`cpp\n${source}\n\`\`\``}
       actions={
         <ActionPanel>
+          <CopySourceCode source={source ?? ""} />
           <RefreshAction revalidate={revalidate} />
         </ActionPanel>
       }

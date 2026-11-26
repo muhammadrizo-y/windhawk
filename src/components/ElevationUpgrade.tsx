@@ -1,12 +1,9 @@
 import { useState } from "react";
 import { Action, ActionPanel, Color, Detail, Icon, showToast, Toast, useNavigation } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
+import { showError } from "@chrismessina/raycast-kit";
 import { registerWorker, unregisterWorker } from "../utils/admin-worker";
 
 interface ElevationUpgradeProps {
-  /**
-   * Optional callback triggered after a successful upgrade.
-   */
   onSetupSuccess?: () => void | Promise<void>;
 }
 
@@ -14,7 +11,8 @@ export default function ElevationUpgrade({ onSetupSuccess }: ElevationUpgradePro
   const { pop } = useNavigation();
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleReregister() {
+  async function handleUpgrade() {
+    if (isLoading) return;
     setIsLoading(true);
     try {
       await unregisterWorker();
@@ -23,8 +21,7 @@ export default function ElevationUpgrade({ onSetupSuccess }: ElevationUpgradePro
       pop();
       await onSetupSuccess?.();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Upgrade failed" });
+      await showError(error, { title: "Upgrade failed" });
     } finally {
       setIsLoading(false);
     }
@@ -57,7 +54,7 @@ The UAC prompts may close the Raycast window; open Raycast again to continue.
       }
       actions={
         <ActionPanel>
-          <Action title="Upgrade Admin Worker" icon={Icon.Shield} onAction={handleReregister} />
+          <Action title="Upgrade Admin Worker" icon={Icon.Shield} onAction={handleUpgrade} />
         </ActionPanel>
       }
     />

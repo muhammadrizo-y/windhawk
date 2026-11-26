@@ -1,6 +1,6 @@
+import { showError } from "@chrismessina/raycast-kit";
 import { ActionPanel, Icon, Keyboard, List } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
-import { useEffect } from "react";
+import { useCachedPromise } from "@raycast/utils";
 import { listVersions } from "../utils/mods";
 import { timestampToLongUTCDate } from "../utils/helpers";
 import { CopyVersionAction, InstallModAction, RefreshAction } from "./Actions";
@@ -17,21 +17,12 @@ export default function ModVersionsList({
   const {
     data: versions,
     isLoading,
-    error,
     revalidate,
-  } = useCachedPromise(
-    async (id: string) => {
-      return await listVersions(id);
+  } = useCachedPromise(listVersions, [id], {
+    onError(error) {
+      void showError(error, { title: `Failed to load versions for ${id}` });
     },
-    [id],
-  );
-
-  useEffect(() => {
-    if (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: `Failed to load versions for ${id}` });
-    }
-  }, [error]);
+  });
 
   return (
     <List

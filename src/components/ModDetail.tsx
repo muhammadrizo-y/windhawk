@@ -1,6 +1,6 @@
-import { ActionPanel, Color, Detail, Icon } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
-import { useEffect } from "react";
+import { showError } from "@chrismessina/raycast-kit";
+import { ActionPanel, Clipboard, Color, Detail, Icon } from "@raycast/api";
+import { useCachedPromise } from "@raycast/utils";
 import { getModDetails } from "../utils/mods";
 import {
   CopyCommandsSubmenu,
@@ -17,7 +17,8 @@ import {
   ViewChangelogAction,
   ViewModSourceCodeAction,
 } from "./Actions";
-import { addRaycastWidthToMarkdownImages, preferences } from "../utils/helpers";
+import { preferences } from "../utils/helpers";
+import { useMarkdownImages } from "../hooks/useMarkdownImages";
 
 export default function ModDetail({ modId }: { modId: string }) {
   const installVersionOpensTo = preferences.installVersionOpensTo;
@@ -25,25 +26,16 @@ export default function ModDetail({ modId }: { modId: string }) {
   const {
     data: mod,
     isLoading,
-    error,
     revalidate,
-  } = useCachedPromise(
-    async (id: string) => {
-      return await getModDetails(id);
+  } = useCachedPromise(getModDetails, [modId], {
+    onError(error) {
+      void showError(error, { title: "Failed to load mod details" });
     },
-    [modId],
-  );
-
-  useEffect(() => {
-    if (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Failed to load mod details" });
-    }
-  }, [error]);
+  });
 
   const id = mod?.id;
   const version = mod?.metadata?.version;
-  const readme = addRaycastWidthToMarkdownImages(mod?.readme);
+  const readme = useMarkdownImages(mod?.readme ?? "");
   const name = mod?.metadata?.name;
   const author = mod?.metadata?.author;
   const github = mod?.metadata?.github;
@@ -58,7 +50,7 @@ export default function ModDetail({ modId }: { modId: string }) {
     <Detail
       isLoading={isLoading}
       navigationTitle={name}
-      markdown={readme ?? "## _Loading…_"}
+      markdown={readme || "## _Loading…_"}
       metadata={
         isLoading ? (
           <Detail.Metadata>
@@ -67,7 +59,7 @@ export default function ModDetail({ modId }: { modId: string }) {
         ) : (
           <Detail.Metadata>
             <Detail.Metadata.TagList title="Mod ID">
-              <Detail.Metadata.TagList.Item text={id} />
+              <Detail.Metadata.TagList.Item text={id} onAction={async () => await Clipboard.copy(id ?? "")} />
             </Detail.Metadata.TagList>
             {installed ? (
               <Detail.Metadata.Label
@@ -109,7 +101,7 @@ export default function ModDetail({ modId }: { modId: string }) {
         )
       }
       actions={
-        !isLoading ? (
+        mod && !isLoading ? (
           <ActionPanel>
             <ActionPanel.Section>
               {!installed ? (
@@ -134,7 +126,7 @@ export default function ModDetail({ modId }: { modId: string }) {
               <OpenInWindhawkAction id={id ?? ""} />
               <ViewChangelogAction id={id ?? ""} name={name ?? ""} />
               <ViewModSourceCodeAction id={id ?? ""} name={name ?? ""} />
-              <OpenInBrowserAction id={id ?? ""} />
+              <OpenInBrowserAction id={id ?? ""} shortcut={{ modifiers: ["ctrl", "alt"], key: "o" }} />
             </ActionPanel.Section>
             <ActionPanel.Section>
               <CopyModInfoSubmenu id={id ?? ""} name={name ?? ""} version={version ?? ""} />
@@ -144,7 +136,11 @@ export default function ModDetail({ modId }: { modId: string }) {
               <RefreshAction revalidate={revalidate} />
             </ActionPanel.Section>
           </ActionPanel>
-        ) : undefined
+        ) : (
+          <ActionPanel>
+            <RefreshAction revalidate={revalidate} />
+          </ActionPanel>
+        )
       }
     />
   );

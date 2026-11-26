@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { tmpdir, userInfo } from "node:os";
 import { randomUUID } from "node:crypto";
 import { getCliPath } from "./helpers";
+import { getErrorMessage } from "@chrismessina/raycast-kit/errors";
+import { validateWorkerRequest, type ModAction, type WorkerRequest } from "./worker-protocol";
+import type { SettingPair } from "../settings/types";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,11 +19,6 @@ export const TASK_NAME = "RaycastWindhawkAdminWorker";
  * actions). Missing marker counts as outdated.
  */
 export const WORKER_VERSION = 1;
-
-export type WorkerAction = "enable" | "disable" | "install" | "update" | "uninstall" | "settings";
-
-const VALID_ACTIONS: WorkerAction[] = ["enable", "disable", "install", "update", "uninstall", "settings"];
-const VALID_ARG = /^[A-Za-z0-9_.[\]-]+$/;
 
 // Raycast's extension host overrides LOCALAPPDATA and USERPROFILE to a temp
 // sandbox that gets wiped by temp cleaners and differs from the real profile
@@ -390,7 +388,7 @@ export async function registerWorker(): Promise<void> {
       throw new Error(`Worker setup was cancelled by user or failed to start. Setup log: ${logTail}`);
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     throw new Error(`Failed to register admin worker: ${message}`);
   } finally {
     await unlockArtifact(HELPER_VBS_PATH);
@@ -479,103 +477,28 @@ export async function unregisterWorker(): Promise<void> {
       );
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     throw new Error(`Failed to unregister admin worker: ${message}`);
   }
 }
 
-/**
- * Sends an allowlisted action to the active elevated worker and returns its stdout.
- *
- * The worker never executes arbitrary command strings: only the fixed actions
- * above are accepted; mod ids/versions/setting keys are validated against a
- * strict charset (setting values pass through opaquely as one argv element);
- * each call uses unique request/response files so concurrent callers stay isolated.
- *
- * Extra arguments are per-action: install takes a version; settings takes a
- * dotted key plus its raw value. Other actions take none.
- */
 export async function runElevatedCommand(
-  action: WorkerAction,
+  action: ModAction | "install",
   modId: string,
-  arg1?: string,
-  arg2?: string,
+  version?: string,
 ): Promise<string> {
-  if (!VALID_ACTIONS.includes(action)) {
-    throw new Error(`Blocked: unknown action "${action}".`);
-  }
-  if (!VALID_ARG.test(modId)) {
-    throw new Error("Blocked: invalid mod id.");
-  }
-
-  let version = "";
-  let key = "";
-  let value = "";
-  if (action === "install") {
-    if (arg1 !== undefined && arg1 !== "" && !VALID_ARG.test(arg1)) {
-      throw new Error("Blocked: invalid version.");
-    }
-    version = arg1 ?? "";
-  } else if (action === "settings") {
-    if (!arg1 || !VALID_ARG.test(arg1)) {
-      throw new Error("Blocked: invalid setting key.");
-    }
-    if (arg2 === undefined) {
-      throw new Error("Blocked: missing setting value.");
-    }
-    key = arg1;
-    value = arg2;
-  } else if (arg1 !== undefined || arg2 !== undefined) {
-    throw new Error(`Blocked: unexpected arguments for action "${action}".`);
-  }
-
-  if (!(await isWorkerRunning())) {
-    throw new Error("Admin worker is not running. Run registerWorker() first.");
-  }
-
-  return dispatchWorkerRequest({ action, modId, version, key, value });
+  if (action !== "install" && version !== undefined) throw new Error("Blocked: unexpected version argument.");
+  return dispatchWorkerRequest(action === "install" ? { action, modId, version } : { action, modId });
 }
 
-/**
- * Sends several setting key/value pairs in one atomic `mod settings set`
- * invocation. Keys are strictly validated; values pass through opaquely.
- */
-export async function runElevatedSettingsBatch(
-  modId: string,
-  pairs: Array<{ key: string; value: string }>,
-): Promise<string> {
-  if (!VALID_ARG.test(modId)) {
-    throw new Error("Blocked: invalid mod id.");
-  }
-  if (pairs.length === 0) {
-    throw new Error("Blocked: no setting pairs to write.");
-  }
-  for (const pair of pairs) {
-    if (!pair.key || !VALID_ARG.test(pair.key)) {
-      throw new Error("Blocked: invalid setting key.");
-    }
-    if (pair.value === undefined) {
-      throw new Error("Blocked: missing setting value.");
-    }
-  }
-
-  if (!(await isWorkerRunning())) {
-    throw new Error("Admin worker is not running. Run registerWorker() first.");
-  }
-
+export function runElevatedSettingsBatch(modId: string, pairs: SettingPair[]): Promise<string> {
   return dispatchWorkerRequest({ action: "settings", modId, pairs });
 }
 
-interface WorkerRequest {
-  action: WorkerAction;
-  modId: string;
-  version?: string;
-  key?: string;
-  value?: string;
-  pairs?: Array<{ key: string; value: string }>;
-}
-
 async function dispatchWorkerRequest(request: WorkerRequest): Promise<string> {
+  validateWorkerRequest(request);
+  if (!(await isWorkerRunning())) throw new Error("Admin worker is not running. Register the worker first.");
+  if (await isWorkerOutdated()) throw new Error("Admin worker upgrade required.");
   try {
     const requestId = randomUUID();
     const requestPath = join(WORK_DIR, `request_${requestId}.json`);
@@ -608,7 +531,7 @@ async function dispatchWorkerRequest(request: WorkerRequest): Promise<string> {
     const output = (res.output || "").trim();
     return output || "Command executed successfully.";
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     throw new Error(message);
   }
 }

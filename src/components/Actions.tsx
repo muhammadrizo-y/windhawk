@@ -1,17 +1,19 @@
 import { Action, ActionPanel, Alert, Color, confirmAlert, Icon, Keyboard } from "@raycast/api";
 import { JSX, useState } from "react";
+import { usePromise } from "@raycast/utils";
 import { ElevatedAction } from "./ElevatedAction";
 import { disableMod, enableMod, installMod, uninstallMod, updateMod } from "../utils/actions";
 import ElevationSetup from "./ElevationSetup";
 import { ModChangelog } from "./ModChangelog";
-import { listVersions } from "../utils/mods";
-import { ModSetting, ModVersion } from "../types";
-import { showFailureToast } from "@raycast/utils";
+import { hasModSettings, listVersions } from "../utils/mods";
+import { ModVersion } from "../types";
+import type { SettingsSnapshot } from "../settings/store";
+import { showError } from "@chrismessina/raycast-kit";
 import { exePath, timestampToUTCDate } from "../utils/helpers";
 import ModVersionsList from "./ModVersionsList";
 import InstalledModSourceCode from "./InstalledModSourceCode";
 import ModSourceCode from "./ModSourceCode";
-import ModSettingsList from "./ModSettingsList";
+import ModSettingsList from "./settings/ModSettingsList";
 
 export function ShowDetailsAction({ target }: { target: JSX.Element }) {
   return <Action.Push icon={Icon.AppWindowSidebarRight} title="Show Details" target={target} />;
@@ -40,12 +42,21 @@ export function ToggleModAction<T>({
   );
 }
 
-export function ConfigureModAction({ id, name, settings }: { id: string; name: string; settings: ModSetting[] }) {
+export function ConfigureModAction({ id, name, initial }: { id: string; name: string; initial?: SettingsSnapshot }) {
+  const { data: hasSettings } = usePromise(hasModSettings, [id], {
+    execute: !initial,
+    onError(error) {
+      void showError(error, { title: `Could not check settings for ${name}` });
+    },
+  });
+
+  if (!(initial ? initial.definitions.length > 0 : hasSettings)) return null;
+
   return (
     <Action.Push
       icon={Icon.Cog}
       title="Configure Mod"
-      target={<ModSettingsList modId={id} name={name} settings={settings} />}
+      target={<ModSettingsList key={id} modId={id} name={name} initial={initial} />}
       shortcut={Keyboard.Shortcut.Common.Edit}
     />
   );
@@ -95,13 +106,13 @@ export function ViewModSourceCodeAction({ id, name }: { id: string; name: string
   );
 }
 
-type OpenInBrowserActionProps = { id: string; url?: never } | { id?: never; url: string };
+type OpenInBrowserActionProps = { id: string; url?: never, shortcut?: Action.OpenInBrowser.Props["shortcut"] } | { id?: never; url: string, shortcut?: Action.OpenInBrowser.Props["shortcut"] };
 
-export function OpenInBrowserAction({ id, url }: OpenInBrowserActionProps) {
+export function OpenInBrowserAction({ id, url, shortcut }: OpenInBrowserActionProps) {
   return (
     <Action.OpenInBrowser
       url={url ?? `https://windhawk.net/mods/${id}`}
-      shortcut={{ modifiers: ["ctrl", "alt"], key: "o" }}
+      shortcut={shortcut}
     />
   );
 }
@@ -159,6 +170,15 @@ export function CopyUpdateCommandAction({ id }: { id: string }) {
 
 export function CopyUninstallCommandAction({ id }: { id: string }) {
   return <Action.CopyToClipboard title="Copy Uninstall Command" content={`windhawk-cli mod remove ${id}`} />;
+}
+
+export function CopySourceCode({ source }: { source: string }) {
+  return (
+    <Action.CopyToClipboard
+      content={`${source}`}
+      shortcut={Keyboard.Shortcut.Common.Copy}
+    />
+  )
 }
 
 export function RefreshAction<T>({ revalidate }: { revalidate: () => Promise<T> | void }) {
@@ -238,8 +258,7 @@ export function InstallVersionSubmenu({
           const versions = await listVersions(id);
           setVersions(versions);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          showFailureToast(message, { title: `Failed to load versions for ${id}` });
+          await showError(error, { title: `Failed to load versions for ${id}` });
         } finally {
           setIsLoading(false);
         }

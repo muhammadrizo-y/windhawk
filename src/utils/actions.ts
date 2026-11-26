@@ -1,107 +1,80 @@
 import { showToast, Toast } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
+import { countOf, failToast, showError } from "@chrismessina/raycast-kit";
 import { runElevatedCommand, runElevatedSettingsBatch } from "./admin-worker";
+import type { SettingPair } from "../settings/types";
 
-export async function enableMod(id: string): Promise<boolean> {
+interface ActionFeedback {
+  loading: string;
+  success: string;
+  failure: string;
+  reshowOnSuccess?: boolean;
+}
+
+async function performAction(operation: () => Promise<unknown>, feedback: ActionFeedback): Promise<boolean> {
+  let toast: Toast | undefined;
   try {
-    const toast = await showToast({ style: Toast.Style.Animated, title: `Enabling ${id}…` });
-
-    await runElevatedCommand("enable", id);
-
-    await toast.hide();
-    await toast.show();
+    toast = await showToast({ style: Toast.Style.Animated, title: feedback.loading });
+    await operation();
+    if (feedback.reshowOnSuccess) {
+      await toast.hide();
+      await toast.show();
+    }
     toast.style = Toast.Style.Success;
-    toast.title = `Enabled ${id}`;
+    toast.title = feedback.success;
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showFailureToast(message, { title: `Could not enable ${id}` });
+    if (toast) failToast(toast, error, { title: feedback.failure });
+    else await showError(error, { title: feedback.failure });
     return false;
   }
 }
 
-export async function disableMod(id: string): Promise<boolean> {
-  try {
-    const toast = await showToast({ style: Toast.Style.Animated, title: `Disabling ${id}…` });
-
-    await runElevatedCommand("disable", id);
-
-    await toast.hide();
-    await toast.show();
-    toast.style = Toast.Style.Success;
-    toast.title = `Disabled ${id}`;
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showFailureToast(message, { title: `Could not disable ${id}` });
-    return false;
-  }
+export function enableMod(id: string): Promise<boolean> {
+  return performAction(() => runElevatedCommand("enable", id), {
+    loading: `Enabling ${id}…`,
+    success: `Enabled ${id}`,
+    failure: `Could not enable ${id}`,
+    reshowOnSuccess: true,
+  });
 }
 
-export async function installMod(id: string, version?: string | undefined): Promise<boolean> {
-  try {
-    const toast = await showToast({ style: Toast.Style.Animated, title: `Installing ${id}…` });
-
-    await runElevatedCommand("install", id, version);
-
-    toast.style = Toast.Style.Success;
-    toast.title = `Installed ${id}`;
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showFailureToast(message, { title: `Could not install ${id}` });
-    return false;
-  }
+export function disableMod(id: string): Promise<boolean> {
+  return performAction(() => runElevatedCommand("disable", id), {
+    loading: `Disabling ${id}…`,
+    success: `Disabled ${id}`,
+    failure: `Could not disable ${id}`,
+    reshowOnSuccess: true,
+  });
 }
 
-export async function updateMod(id: string): Promise<boolean> {
-  try {
-    const toast = await showToast({ style: Toast.Style.Animated, title: `Updating ${id}…` });
-
-    await runElevatedCommand("update", id);
-
-    toast.style = Toast.Style.Success;
-    toast.title = `Updated ${id}`;
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showFailureToast(message, { title: `Could not update ${id}` });
-    return false;
-  }
+export function installMod(id: string, version?: string): Promise<boolean> {
+  return performAction(() => runElevatedCommand("install", id, version), {
+    loading: `Installing ${id}…`,
+    success: `Installed ${id}`,
+    failure: `Could not install ${id}`,
+  });
 }
 
-export async function uninstallMod(id: string): Promise<boolean> {
-  try {
-    const toast = await showToast({ style: Toast.Style.Animated, title: `Uninstalling ${id}…` });
-
-    await runElevatedCommand("uninstall", id);
-
-    toast.style = Toast.Style.Success;
-    toast.title = `Uninstalled ${id}`;
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showFailureToast(message, { title: `Could not uninstall ${id}` });
-    return false;
-  }
+export function updateMod(id: string): Promise<boolean> {
+  return performAction(() => runElevatedCommand("update", id), {
+    loading: `Updating ${id}…`,
+    success: `Updated ${id}`,
+    failure: `Could not update ${id}`,
+  });
 }
 
-export async function setModSetting(id: string, key: string, value: string): Promise<boolean> {
-  return setModSettings(id, [{ key, value }]);
+export function uninstallMod(id: string): Promise<boolean> {
+  return performAction(() => runElevatedCommand("uninstall", id), {
+    loading: `Uninstalling ${id}…`,
+    success: `Uninstalled ${id}`,
+    failure: `Could not uninstall ${id}`,
+  });
 }
 
-export async function setModSettings(id: string, pairs: Array<{ key: string; value: string }>): Promise<boolean> {
-  try {
-    const toast = await showToast({ style: Toast.Style.Animated, title: `Updating settings…` });
-
-    await runElevatedSettingsBatch(id, pairs);
-
-    toast.style = Toast.Style.Success;
-    toast.title = pairs.length === 1 ? `Setting updated` : `${pairs.length} settings updated`;
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showFailureToast(message, { title: `Could not update settings` });
-    return false;
-  }
+export function setModSettings(id: string, pairs: SettingPair[]): Promise<boolean> {
+  return performAction(() => runElevatedSettingsBatch(id, pairs), {
+    loading: "Updating settings…",
+    success: pairs.length === 1 ? "Setting updated" : `${countOf(pairs.length, "setting")} updated`,
+    failure: "Could not update settings",
+  });
 }

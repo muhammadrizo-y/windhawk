@@ -1,3 +1,5 @@
+import type { SettingsSnapshot } from "./settings/store";
+
 export interface InstalledMod {
   id: string;
   version: string;
@@ -7,14 +9,6 @@ export interface InstalledMod {
   enabled: boolean;
   updateAvailable: boolean;
   availableUpdateVersion: string | null;
-}
-
-export interface ModSetting {
-  key: string;
-  value: number | boolean | string | string[] | ModSetting[] | ModSetting[][];
-  name: string;
-  description?: string;
-  options?: Record<string, string>[];
 }
 
 export interface InstalledModDetails {
@@ -32,8 +26,7 @@ export interface InstalledModDetails {
     exclude: string[];
   };
   readme: string;
-  initialSettings: ModSetting[];
-  settings: ModSetting[];
+  settingsSnapshot: SettingsSnapshot;
   enabled: boolean;
   updateAvailable: boolean;
   availableUpdateVersion: string | null;

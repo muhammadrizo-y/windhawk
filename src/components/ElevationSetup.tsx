@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import { Detail, ActionPanel, Action, useNavigation, showToast, Toast, Icon, Color } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
+import { showError } from "@chrismessina/raycast-kit";
 import { isWorkerOutdated, isWorkerRunning, registerWorker, unregisterWorker } from "../utils/admin-worker";
+import ElevationUpgrade from "./ElevationUpgrade";
 
 interface ElevationSetupProps {
-  /**
-   * Optional callback triggered when clicking Continue after successful worker registration.
-   */
-  onSetupSuccess?: () => void;
+  onSetupSuccess?: () => void | Promise<void>;
 }
 
 export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) {
@@ -43,8 +41,7 @@ export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) 
       setNeedsUpgrade(false);
       await showToast({ style: Toast.Style.Success, title: "Admin worker registered" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Registration failed" });
+      await showError(error, { title: "Registration failed" });
     } finally {
       setIsLoading(false);
     }
@@ -57,18 +54,16 @@ export default function ElevationSetup({ onSetupSuccess }: ElevationSetupProps) 
       setIsRegistered(false);
       await showToast({ style: Toast.Style.Success, title: "Admin worker unregistered" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Unregister failed" });
+      await showError(error, { title: "Unregister failed" });
     } finally {
       setIsLoading(false);
     }
   }
 
-  function handleContinue() {
+  async function handleContinue() {
+    if (!isRegistered || needsUpgrade) return;
     pop();
-    if (onSetupSuccess) {
-      onSetupSuccess();
-    }
+    await onSetupSuccess?.();
   }
 
   if (isLoading) {
@@ -92,7 +87,7 @@ Some actions require Windhawk CLI commands to be run as administrator, such as i
 
 The UAC prompt may close the Raycast window; open Raycast again to continue.
 
-You can unregister or re-register at any time by opening this page again. \`Manage Mods\` / \`Search Mods\` command -> \`Manage Elevation\`.
+You can unregister, register, or upgrade the worker by opening this page again. \`Manage Mods\` / \`Search Mods\` command -> \`Manage Elevation\`.
 `;
 
   return (
@@ -117,7 +112,25 @@ You can unregister or re-register at any time by opening this page again. \`Mana
         <ActionPanel>
           {isRegistered ? (
             <>
-              <Action title="Continue" icon={Icon.ArrowRight} onAction={handleContinue} />
+              {needsUpgrade ? (
+                <Action.Push
+                  title="Upgrade Admin Worker"
+                  icon={Icon.Shield}
+                  target={
+                    <ElevationUpgrade
+                      onSetupSuccess={async () => {
+                        await checkStatus();
+                        if (onSetupSuccess) {
+                          pop();
+                          await onSetupSuccess();
+                        }
+                      }}
+                    />
+                  }
+                />
+              ) : (
+                <Action title="Continue" icon={Icon.ArrowRight} onAction={handleContinue} />
+              )}
               <Action title="Unregister Admin Worker" icon={Icon.Trash} onAction={handleUnregister} />
             </>
           ) : (

@@ -1,9 +1,11 @@
-import { ActionPanel, Color, Icon, List } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
+import { showError } from "@chrismessina/raycast-kit";
+import { ActionPanel, Clipboard, Color, Icon, List } from "@raycast/api";
+import { useCachedPromise } from "@raycast/utils";
 import { useEffect, useState } from "react";
 import { getMods } from "./utils/mods";
 import { Mod } from "./types";
 import {
+  ConfigureModAction,
   CopyCommandsSubmenu,
   CopyModInfoSubmenu,
   InstallModAction,
@@ -29,10 +31,11 @@ export default function Command() {
   const {
     data: mods,
     isLoading,
-    error,
     revalidate,
-  } = useCachedPromise(async () => {
-    return await getMods();
+  } = useCachedPromise(getMods, [], {
+    onError(error) {
+      void showError(error, { title: "Failed to load mods" });
+    },
   });
 
   const [patches, setPatches] = useState<Record<string, Partial<Mod>>>({});
@@ -44,13 +47,6 @@ export default function Command() {
   const patchMod = (id: string, patch: Partial<Mod>) => {
     setPatches((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   };
-
-  useEffect(() => {
-    if (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Failed to load mods" });
-    }
-  }, [error]);
 
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search mods…" isShowingDetail throttle>
@@ -79,7 +75,7 @@ export default function Command() {
                   metadata={
                     <List.Item.Detail.Metadata>
                       <List.Item.Detail.Metadata.TagList title="Mod ID">
-                        <List.Item.Detail.Metadata.TagList.Item text={id} />
+                        <List.Item.Detail.Metadata.TagList.Item text={id} onAction={async () => await Clipboard.copy(id ?? "")} />
                       </List.Item.Detail.Metadata.TagList>
                       {installed ? (
                         <List.Item.Detail.Metadata.Label
@@ -185,6 +181,7 @@ export default function Command() {
                             onSuccess={() => patchMod(id, { installedVersion: version, updateAvailable: false })}
                           />
                         ) : undefined}
+                        <ConfigureModAction id={id} name={name} />
                         <UninstallModAction
                           id={id}
                           name={name}
@@ -204,17 +201,17 @@ export default function Command() {
                     <OpenInWindhawkAction id={id} />
                     <ViewChangelogAction id={id} name={name ?? ""} />
                     <ViewModSourceCodeAction id={id} name={name ?? ""} />
-                    <OpenInBrowserAction id={id} />
+                    <OpenInBrowserAction id={id} shortcut={{ modifiers: ["ctrl", "alt"], key: "o" }} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
                     <CopyModInfoSubmenu id={id} name={name ?? ""} version={version ?? ""} />
                     <CopyCommandsSubmenu id={id} />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
-                    <RefreshAction revalidate={revalidate} />
+                    <ManageElevationAction />
                   </ActionPanel.Section>
                   <ActionPanel.Section>
-                    <ManageElevationAction />
+                    <RefreshAction revalidate={revalidate} />
                   </ActionPanel.Section>
                 </ActionPanel>
               }

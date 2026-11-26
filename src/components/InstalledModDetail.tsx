@@ -1,6 +1,6 @@
-import { ActionPanel, Color, Detail, Icon } from "@raycast/api";
-import { showFailureToast, useCachedPromise } from "@raycast/utils";
-import { useEffect } from "react";
+import { showError } from "@chrismessina/raycast-kit";
+import { ActionPanel, Clipboard, Color, Detail, Icon } from "@raycast/api";
+import { useCachedPromise } from "@raycast/utils";
 import { getInstalledModDetails } from "../utils/mods";
 import {
   ConfigureModAction,
@@ -15,31 +15,22 @@ import {
   ViewChangelogAction,
   ViewInstalledModSourceCodeAction,
 } from "./Actions";
-import { addRaycastWidthToMarkdownImages } from "../utils/helpers";
+import { useMarkdownImages } from "../hooks/useMarkdownImages";
 
 export default function InstalledModDetail({ modId }: { modId: string }) {
   const {
     data: mod,
     isLoading,
-    error,
     revalidate,
-  } = useCachedPromise(
-    async (id: string) => {
-      return await getInstalledModDetails(id);
+  } = useCachedPromise(getInstalledModDetails, [modId], {
+    onError(error) {
+      void showError(error, { title: "Failed to load installed mod details" });
     },
-    [modId],
-  );
-
-  useEffect(() => {
-    if (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showFailureToast(message, { title: "Failed to load installed mod details" });
-    }
-  }, [error]);
+  });
 
   const id = mod?.id;
   const version = mod?.metadata?.version;
-  const readme = addRaycastWidthToMarkdownImages(mod?.readme);
+  const readme = useMarkdownImages(mod?.readme ?? "");
   const name = mod?.metadata?.name;
   const author = mod?.metadata?.author;
   const github = mod?.metadata?.github;
@@ -53,7 +44,7 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
     <Detail
       isLoading={isLoading}
       navigationTitle={name}
-      markdown={readme}
+      markdown={readme || undefined}
       metadata={
         isLoading ? (
           <Detail.Metadata>
@@ -62,7 +53,7 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
         ) : (
           <Detail.Metadata>
             <Detail.Metadata.TagList title="Mod ID">
-              <Detail.Metadata.TagList.Item text={id} />
+              <Detail.Metadata.TagList.Item text={id} onAction={async () => await Clipboard.copy(id ?? "")} />
             </Detail.Metadata.TagList>
             <Detail.Metadata.Label
               icon={
@@ -100,12 +91,12 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
         )
       }
       actions={
-        !isLoading ? (
+        mod && !isLoading ? (
           <ActionPanel>
             <ActionPanel.Section>
               <ToggleModAction id={id ?? ""} enabled={enabled ?? false} onSuccess={revalidate} />
-              {mod?.settings && mod.settings.length > 0 ? (
-                <ConfigureModAction id={id ?? ""} name={name ?? ""} settings={mod.settings} />
+              {mod.settingsSnapshot?.definitions.length > 0 ? (
+                <ConfigureModAction id={id ?? ""} name={name ?? ""} initial={mod.settingsSnapshot} />
               ) : undefined}
               {updateAvailable ? <UpdateModAction id={id ?? ""} onSuccess={revalidate} /> : undefined}
               <UninstallModAction id={id ?? ""} name={name ?? ""} onSuccess={revalidate} />
@@ -114,7 +105,7 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
               <OpenInWindhawkAction id={id ?? ""} />
               <ViewChangelogAction id={id ?? ""} name={name ?? ""} />
               <ViewInstalledModSourceCodeAction id={id ?? ""} name={name ?? ""} />
-              <OpenInBrowserAction id={id ?? ""} />
+              <OpenInBrowserAction id={id ?? ""} shortcut={{ modifiers: ["ctrl", "alt"], key: "o" }} />
             </ActionPanel.Section>
             <ActionPanel.Section>
               <CopyModInfoSubmenu id={id ?? ""} name={name ?? ""} version={version ?? ""} />
@@ -122,7 +113,11 @@ export default function InstalledModDetail({ modId }: { modId: string }) {
             </ActionPanel.Section>
             <RefreshAction revalidate={revalidate} />
           </ActionPanel>
-        ) : undefined
+        ) : (
+          <ActionPanel>
+            <RefreshAction revalidate={revalidate} />
+          </ActionPanel>
+        )
       }
     />
   );
